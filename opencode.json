@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "anythingllm": {
+      "type": "local",
+      "command": ["py", "run.py"],
+      "cwd": "AnythingLLMMCP",
+      "enabled": true
+    },
+    "PetHospital": {
+      "type": "local",
+      "command": ["uv", "run", "python", "-m", "pet_hospital_mcp"],
+      "cwd": "PetHospitalMCP/chongwu_mcp",
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>文档上传到 AnythingLLM</title>
+  <style>
+    body { font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px; }
+    h1 { font-size: 20px; }
+    .field { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 4px; font-weight: 600; }
+    input, select { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { background: #2563eb; color: #fff; border: none; padding: 10px 24px; cursor: pointer; font-size: 14px; border-radius: 4px; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #log { margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 4px; min-height: 100px; white-space: pre-wrap; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>上传文档到 AnythingLLM</h1>
+  <div class="field">
+    <label>选择文件</label>
+    <input type="file" id="fileInput">
+  </div>
+  <div class="field">
+    <label>目标工作区</label>
+    <select id="workspaceSelect">
+      <option value="46decf1f-7fe5-4d03-9584-9d2b6f2743a0">我的工作区 (46decf1f...)</option>
+    </select>
+  </div>
+  <button id="uploadBtn" onclick="upload()">上传并嵌入</button>
+  <div id="log">等待操作...</div>
+  <script>
+    const API_URL = '/api/upload';
+    const workspaceSelect = document.getElementById('workspaceSelect');
+    const log = document.getElementById('log');
+
+    async function loadWorkspaces() {
+      try {
+        const res = await fetch('/api/workspaces');
+        const data = await res.json();
+        if (!res.ok || !Array.isArray(data.workspaces)) return;
+        workspaceSelect.innerHTML = data.workspaces
+          .map(w => `<option value="${w.slug}">${w.name} (${w.slug.slice(0, 8)}...)</option>`)
+          .join('');
+        const saved = localStorage.getItem('anythingllm_workspace');
+        if (saved && data.workspaces.some(w => w.slug === saved)) workspaceSelect.value = saved;
+      } catch (e) {
+        log.textContent = `工作区列表加载失败，使用默认工作区: ${e.message}`;
+      }
+    }
+
+    async function upload() {
+      const file = document.getElementById('fileInput').files[0];
+      const workspace = workspaceSelect.value;
+      const btn = document.getElementById('uploadBtn');
+
+      if (!file) { log.textContent = '请先选择文件'; return; }
+      if (!workspace) { log.textContent = '请先选择目标工作区'; return; }
+
+      localStorage.setItem('anythingllm_workspace', workspace);
+      btn.disabled = true;
+      log.textContent = `正在上传 "${file.name}" 到工作区 ${workspace}...`;
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('addToWorkspaces', workspace);
+
+      try {
+        const res = await fetch(API_URL, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          log.textContent = `上传成功！\n\n${JSON.stringify(data, null, 2)}`;
+        } else {
+          log.textContent = `上传失败 (${res.status}):\n${JSON.stringify(data, null, 2)}`;
+        }
+      } catch (e) {
+        log.textContent = `请求错误: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    loadWorkspaces();
+  </script>
+</body>
+</html>

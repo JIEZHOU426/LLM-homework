@@ -1,0 +1,86 @@
+flowchart TD
+    subgraph ENTRY["入口层"]
+        U["用户"] -->|"输入问题"| MAIN["main()<br/>多轮输入循环"]
+        MAIN -->|"Ctrl+C / EOF"| EXIT["退出程序"]
+        MAIN -->|"追加 user 消息"| ANSWER["answer(messages)<br/>工具调用循环"]
+    end
+
+    subgraph AGENT["对话与工具调度"]
+        ANSWER -->|"messages + TOOLS<br/>stream=True"| API["DeepSeek API<br/>OpenAI SDK 客户端"]
+        API -->|"content 增量"| STREAM["流式打印回复"]
+        API -->|"tool_calls 增量"| ACC["累积并拼装<br/>工具名与参数"]
+        ACC -->|"无 tool_calls"| ANSWER
+        ACC -->|"有 tool_calls"| DISPATCH["run_tool(name, arguments)<br/>JSON 参数解析与分发"]
+        DISPATCH -->|"工具结果 JSON"| TOOLMSG["追加 tool 消息<br/>到 messages"]
+        TOOLMSG --> ANSWER
+    end
+
+    subgraph TOOLS["工具层"]
+        subgraph TIME["时间与日期"]
+            T_DATE["getDate"]
+            T_LEAP["isleapyear"]
+        end
+        subgraph FILE["本地文件操作"]
+            T_CWD["get_cwd"]
+            T_LIST["list_directory"]
+            T_TYPE["get_file_type"]
+            T_READ["read_text_file"]
+            T_CREATE["create_file"]
+            T_EDIT["edit_file"]
+            T_MKDIR["create_directory"]
+            T_RMDIR["delete_directory"]
+            T_DEL["delete_file"]
+            T_RENAME["rename_path"]
+        end
+    end
+
+    DISPATCH --> T_DATE
+    DISPATCH --> T_LEAP
+    DISPATCH --> T_CWD
+    DISPATCH --> T_LIST
+    DISPATCH --> T_TYPE
+    DISPATCH --> T_READ
+    DISPATCH --> T_CREATE
+    DISPATCH --> T_EDIT
+    DISPATCH --> T_MKDIR
+    DISPATCH --> T_RMDIR
+    DISPATCH --> T_DEL
+    DISPATCH --> T_RENAME
+
+    subgraph CORE["公共能力"]
+        P_RESOLVE["resolve_path()<br/>相对路径解析"]
+        P_ENCODE["detect_encoding()<br/>UTF-8 / 本地编码 / GBK"]
+        P_TEXT["is_text_data()<br/>二进制检测"]
+        P_JSON["json_error()<br/>统一错误 JSON"]
+        P_READ["read_file_content()<br/>2MB 上限 + 文本校验"]
+        P_SAFE["ensure_safe_delete()<br/>危险目录保护"]
+    end
+
+    T_LEAP -->|"闰年规则"| LEAPLOGIC["能被 4 整除且不能被 100 整除<br/>或能被 400 整除"]
+    T_DATE -->|"subprocess"| CMD["本地 date 命令<br/>Windows: date /t & time /t<br/>Linux/macOS: date"]
+    T_CWD --> FS[("本地文件系统")]
+    T_LIST --> FS
+    T_TYPE --> FS
+    T_READ --> FS
+    T_CREATE --> FS
+    T_EDIT --> FS
+    T_MKDIR --> FS
+    T_RMDIR --> FS
+    T_DEL --> FS
+    T_RENAME --> FS
+
+    T_LIST -.-> P_RESOLVE
+    T_TYPE -.-> P_TEXT
+    T_READ -.-> P_READ
+    T_EDIT -.-> P_READ
+    T_RMDIR -.-> P_SAFE
+    P_TEXT -.-> P_ENCODE
+    P_READ -.-> P_ENCODE
+
+    subgraph CONFIG["配置与依赖"]
+        ENV[".env<br/>DEEPSEEK_API_KEY"] --> CLIENT["OpenAI 客户端初始化"]
+        INI["config.ini<br/>[LLM] api_key"] --> CLIENT
+        CLIENT --> API
+    end
+
+    CMD --> OS[("本地操作系统")]

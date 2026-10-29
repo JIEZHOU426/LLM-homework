@@ -1,0 +1,65 @@
+Screen {
+    background: $surface;
+}
+
+#chat {
+    height: 1fr;
+    padding: 1 2;
+    scrollbar-gutter: stable;
+}
+
+.message {
+    height: auto;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    border-left: thick $primary;
+}
+
+.message-user {
+    border-left: thick $accent;
+}
+
+.message-assistant {
+    border-left: thick $success;
+}
+
+.message-tool {
+    border-left: thick $warning;
+    background: $boost;
+}
+
+.message-error {
+    border-left: thick $error;
+}
+
+.message-role {
+    height: auto;
+    color: $text-muted;
+    text-style: bold;
+}
+
+.message-body {
+    height: auto;
+    margin: 0;
+}
+
+.message-tool .message-body {
+    color: $text-muted;
+}
+
+#status-bar {
+    height: 1;
+    padding: 0 2;
+    background: $panel;
+    color: $text-muted;
+}
+
+#chat-input {
+    height: 3;
+    margin: 0 1;
+    border: tall $primary;
+}
+
+#chat-input:focus {
+    border: tall $accent;
+}

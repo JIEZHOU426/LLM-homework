@@ -1,0 +1,11 @@
+[LLM]
+api_key = sk-your-deepseek-key-here
+base_url = https://api.deepseek.com/v1
+model = deepseek-chat
+timeout = 120
+
+[files]
+max_text_bytes = 2097152
+
+[search]
+baidu_api_key = bce-v3/your-baidu-qianfan-api-key
