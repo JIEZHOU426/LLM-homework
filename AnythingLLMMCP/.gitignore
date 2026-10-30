@@ -1,0 +1,25 @@
+# Secrets
+.env
+/.mcp.json
+/opencode.json
+
+# Root-level working copies (the pushable code lives in project folders)
+/pyproject.toml
+/MVP_DEVELOPMENT_PLAN.md
+/answer.txt
+/*.py
+/src/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Editors
+.vscode/
+.idea/
+
