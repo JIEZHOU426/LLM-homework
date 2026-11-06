@@ -7,22 +7,33 @@ contract.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from ..skills import SkillCatalog
 from .base import FunctionTool, Tool, ToolSpec
 from .clock import build_clock_tools
 from .filesystem import FileSystemTools
 from .registry import ToolRegistry
 from .search import build_search_tools
+from .skills import build_skill_tool
 from .web import build_web_tools
 
 
 def build_default_registry(
     max_text_bytes: int,
     baidu_search_api_key: str = "",
+    skills: SkillCatalog | None = None,
 ) -> ToolRegistry:
+    catalog = (
+        skills
+        if skills is not None
+        else SkillCatalog.discover(Path.cwd(), max_text_bytes)
+    )
     tools: list[Tool] = build_clock_tools()
     tools.extend(FileSystemTools(max_text_bytes).build())
     tools.extend(build_web_tools())
     tools.extend(build_search_tools(baidu_search_api_key))
+    tools.append(build_skill_tool(catalog))
     return ToolRegistry(tools)
 
 
@@ -35,5 +46,6 @@ __all__ = [
     "build_clock_tools",
     "build_default_registry",
     "build_search_tools",
+    "build_skill_tool",
     "build_web_tools",
 ]

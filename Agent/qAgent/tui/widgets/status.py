@@ -1,41 +1,47 @@
-"""Status bar widget."""
+"""Session information bar."""
 
 from __future__ import annotations
 
+from rich.markup import escape
 from textual.widgets import Static
-
-STATUS_COLORS = {
-    "idle": "green",
-    "busy": "yellow",
-    "tool": "cyan",
-    "error": "red",
-}
 
 
 class StatusBar(Static):
-    def __init__(self, model: str) -> None:
-        super().__init__(id="status-bar")
-        self._model = model
-        self._state = "idle"
-        self._detail = "就绪"
+    """Shows the working directory and how many tools/skills are available."""
 
-    def set_model(self, model: str) -> None:
-        self._model = model
+    def __init__(self) -> None:
+        super().__init__(id="status-bar")
+        self._workspace = ""
+        self._tool_count: int | None = None
+        self._skill_count: int | None = None
         self._refresh_display()
 
-    def set_status(self, state: str, detail: str = "") -> None:
-        self._state = state
-        self._detail = detail or {
-            "idle": "就绪",
-            "busy": "思考中",
-            "tool": "执行工具",
-            "error": "出错",
-        }.get(state, state)
+    def set_workspace(self, workspace: str) -> None:
+        self._workspace = workspace
+        self._refresh_display()
+
+    def set_tool_count(self, count: int) -> None:
+        self._tool_count = count
+        self._refresh_display()
+
+    def set_skill_count(self, count: int) -> None:
+        self._skill_count = count
         self._refresh_display()
 
     def _refresh_display(self) -> None:
-        color = STATUS_COLORS.get(self._state, "white")
-        self.update(
-            f"[{color}]● {self._detail}[/]  "
-            f"[dim]{self._model}[/dim]"
-        )
+        parts = []
+        if self._workspace:
+            parts.append(
+                f"[#8b949e]cwd[/] [#e6edf3]{escape(self._workspace)}[/]"
+            )
+        if self._tool_count is not None:
+            parts.append(
+                f"[#8b949e]tools[/] [#e6edf3]{self._tool_count}[/]"
+            )
+        if self._skill_count is not None:
+            parts.append(
+                f"[#8b949e]skills[/] [#e6edf3]{self._skill_count}[/]"
+            )
+        if not parts:
+            parts.append("[#8b949e]正在初始化…[/]")
+        self.update("   ".join(parts))

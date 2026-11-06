@@ -10,7 +10,7 @@ class ChatInput(Input):
 
     def __init__(self) -> None:
         super().__init__(
-            placeholder="输入问题，Enter 发送；/help 查看命令",
+            placeholder="❯ 输入消息，Enter 发送…",
             id="chat-input",
             select_on_focus=False,
         )

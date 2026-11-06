@@ -18,6 +18,7 @@ from .events import (
     TurnCompleted,
 )
 from .llm import create_async_client
+from .skills import SkillCatalog
 from .tools import ToolRegistry, build_default_registry
 
 
@@ -33,21 +34,49 @@ class ChatAgent:
         settings: Settings,
         registry: ToolRegistry | None = None,
         client: AsyncOpenAI | None = None,
+        skills: SkillCatalog | None = None,
     ) -> None:
         self._settings = settings
+        self._skills = (
+            skills
+            if skills is not None
+            else SkillCatalog.discover(
+                settings.workspace_root,
+                settings.max_text_bytes,
+            )
+        )
         self._registry = registry or build_default_registry(
             settings.max_text_bytes,
             settings.baidu_search_api_key,
+            self._skills,
         )
         self._client = client or create_async_client(settings)
+        self._system_message = self._build_system_message()
         self._messages: list[dict[str, Any]] = []
+        self.clear()
 
     @property
     def messages(self) -> tuple[dict[str, Any], ...]:
         return tuple(self._messages)
 
+    @property
+    def skills(self) -> SkillCatalog:
+        return self._skills
+
+    @property
+    def tool_count(self) -> int:
+        return len(self._registry)
+
     def clear(self) -> None:
         self._messages.clear()
+        if self._system_message is not None:
+            self._messages.append(dict(self._system_message))
+
+    def _build_system_message(self) -> dict[str, Any] | None:
+        prompt = self._skills.system_prompt()
+        if not prompt:
+            return None
+        return {"role": "system", "content": prompt}
 
     async def send(self, user_input: str) -> AsyncIterator[AgentEvent]:
         """Run one user turn, including any number of tool round-trips."""

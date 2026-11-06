@@ -12,7 +12,8 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header, Input
+from textual.theme import Theme
+from textual.widgets import Input
 
 from core import (
     AgentError,
@@ -25,16 +26,35 @@ from core import (
     TurnCompleted,
 )
 
-from .widgets import ChatInput, ChatView, StatusBar
+from .widgets import AppHeader, ChatInput, ChatView, HintBar, StatusBar
+
+QAGENT_THEME = Theme(
+    name="qagent",
+    primary="#f5a623",
+    secondary="#58a6ff",
+    accent="#f5a623",
+    success="#3fb950",
+    warning="#d29922",
+    error="#f85149",
+    foreground="#e6edf3",
+    background="#0d1117",
+    surface="#161b22",
+    panel="#1f242c",
+    boost="#2d333b",
+    dark=True,
+)
 
 WELCOME_TEXT = """\
-# qAgent
+# ◆ qAgent
 
-基于 DeepSeek 的命令行聊天 Agent，当前使用 Textual TUI。
+**DeepSeek · 终端 AI 助手**
 
-- 直接输入问题，按 **Enter** 发送
-- Agent 会按需调用工具（时间、文件操作、网页抓取、联网搜索）
-- 输入 `/help` 查看命令，`Ctrl+Q` 退出
+直接输入问题开始对话。Agent 会按需调用工具，并在需要时加载 Skill。
+
+- `Enter` 发送消息
+- `/help` 查看命令
+- `Ctrl+L` 清空对话
+- `Ctrl+Q` 退出
 """
 
 HELP_TEXT = """\
@@ -62,15 +82,17 @@ class QAgentApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
+        self.register_theme(QAGENT_THEME)
+        self.theme = "qagent"
         self._agent: ChatAgent | None = None
         self._busy = False
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield AppHeader()
         yield ChatView(id="chat")
-        yield StatusBar("未连接")
+        yield StatusBar()
         yield ChatInput()
-        yield Footer()
+        yield HintBar()
 
     @property
     def chat(self) -> ChatView:
@@ -81,24 +103,38 @@ class QAgentApp(App[None]):
         return self.query_one(ChatInput)
 
     @property
+    def header(self) -> AppHeader:
+        return self.query_one(AppHeader)
+
+    @property
     def status_bar(self) -> StatusBar:
         return self.query_one(StatusBar)
 
     async def on_mount(self) -> None:
         self.chat_input.focus()
-        await self.chat.add_message("system", WELCOME_TEXT)
+        self.status_bar.set_workspace(str(Path.cwd()))
+        await self.chat.add_message("welcome", WELCOME_TEXT)
 
         try:
             settings = Settings.load()
         except ConfigurationError as exc:
-            self.status_bar.set_status("error", "配置错误")
+            self.header.set_status("error", "配置错误")
             await self.chat.add_message("error", f"配置错误：{exc}")
             self.chat_input.disabled = True
             return
 
-        self.status_bar.set_model(settings.model)
+        self.header.set_model(settings.model)
+        self.status_bar.set_workspace(str(settings.workspace_root))
         self._agent = ChatAgent(settings)
-        self.status_bar.set_status("idle")
+        self.status_bar.set_tool_count(self._agent.tool_count)
+        self.status_bar.set_skill_count(len(self._agent.skills.skills))
+        self.header.set_status("idle")
+        await self.chat.add_message(
+            "system",
+            f"`cwd` **{settings.workspace_root}**  ·  "
+            f"`tools` **{self._agent.tool_count}**  ·  "
+            f"`skills` **{len(self._agent.skills.skills)}**",
+        )
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -135,7 +171,7 @@ class QAgentApp(App[None]):
 
         self._busy = True
         self.chat_input.disabled = True
-        self.status_bar.set_status("busy")
+        self.header.set_status("busy")
 
         assistant_card = None
         assistant_text = ""
@@ -152,14 +188,14 @@ class QAgentApp(App[None]):
                     await assistant_card.append_text(event.text)
                     self.chat.scroll_to_bottom()
                 elif isinstance(event, ToolCallRequested):
-                    self.status_bar.set_status(
+                    self.header.set_status(
                         "tool", f"执行工具 {event.call.name}"
                     )
                 elif isinstance(event, ToolCallCompleted):
                     await self.chat.add_message(
                         "tool", _format_tool_event(event)
                     )
-                    self.status_bar.set_status("busy", "继续思考")
+                    self.header.set_status("busy", "继续思考")
                 elif isinstance(event, TurnCompleted):
                     if assistant_card is None and event.content:
                         await self.chat.add_message(
@@ -178,14 +214,15 @@ class QAgentApp(App[None]):
             self.chat_input.disabled = False
             self.chat_input.focus()
             if failed:
-                self.status_bar.set_status("error", "请求失败")
+                self.header.set_status("error", "请求失败")
             else:
-                self.status_bar.set_status("idle")
+                self.header.set_status("idle")
 
     async def _clear_conversation(self) -> None:
         if self._agent is not None:
             self._agent.clear()
         await self.chat.clear_messages()
+        self.header.set_status("idle")
         await self.chat.add_message("system", "对话已清空，可以开始新的提问。")
 
     def action_clear_history(self) -> None:

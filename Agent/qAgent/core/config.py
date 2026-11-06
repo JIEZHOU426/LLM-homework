@@ -33,6 +33,7 @@ class Settings:
     request_timeout: float = 120.0
     baidu_search_api_key: str = ""
     project_root: Path = Path(".")
+    workspace_root: Path = Path(".")
 
     @classmethod
     def load(cls, project_root: Path | None = None) -> "Settings":
@@ -95,6 +96,7 @@ class Settings:
             request_timeout=request_timeout,
             baidu_search_api_key=baidu_search_api_key,
             project_root=root,
+            workspace_root=Path.cwd().resolve(),
         )
 
 

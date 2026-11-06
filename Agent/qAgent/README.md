@@ -16,6 +16,7 @@ qAgent/
 │   ├── config.py            # Settings：读取 .env 与 config.ini
 │   ├── events.py            # 核心向前端输出的事件协议
 │   ├── agent.py             # ChatAgent：对话状态 + 流式 + 工具调用循环
+│   ├── skills.py            # Agent Skills 发现、元数据与按需加载
 │   ├── llm/
 │   │   └── client.py        # OpenAI 兼容客户端构造
 │   └── tools/
@@ -25,6 +26,7 @@ qAgent/
 │       ├── clock.py         # getDate、isleapyear
 │       ├── filesystem.py    # 10 个本地文件操作工具
 │       ├── search.py        # searchWeb：百度千帆联网搜索
+│       ├── skills.py        # loadSkill：按需加载 Skill 正文与附件
 │       └── web.py           # fetchweb：网页正文抓取与 Markdown 转换
 └── tui/                     # Textual 前端（只依赖 core 的公开接口）
     ├── app.py               # 组合根：把核心事件映射为界面行为
@@ -32,8 +34,10 @@ qAgent/
     ├── __main__.py
     └── widgets/
         ├── chat.py          # ChatView / MessageCard
+        ├── header.py        # AppHeader：品牌、模型与实时状态
+        ├── hints.py         # HintBar：常用快捷键
         ├── input.py         # ChatInput
-        └── status.py        # StatusBar
+        └── status.py        # StatusBar：cwd / tools / skills
 ```
 
 依赖方向严格单向：
@@ -98,6 +102,9 @@ py -m tui
 
 ## TUI 操作
 
+顶部栏显示模型和实时状态；底部信息栏显示当前工作目录（`cwd`）、工具数量
+（`tools`）和技能数量（`skills`）；最下方显示常用快捷键。
+
 | 操作 | 说明 |
 | --- | --- |
 | `Enter` | 发送问题 |
@@ -109,7 +116,7 @@ py -m tui
 
 ## 工具
 
-共 14 个：
+共 15 个：
 
 - 时间与日期：`getDate`、`isleapyear`
 - 文件与目录：`get_cwd`、`list_directory`、`get_file_type`、`read_text_file`、
@@ -117,6 +124,36 @@ py -m tui
   `delete_file`、`rename_path`
 - 网页内容：`fetchweb`
 - 联网搜索：`searchWeb`
+- 技能：`loadSkill`
+
+## Agent Skills
+
+qAgent 以**程序启动时的工作目录**作为项目根目录，扫描
+`<项目根>/.agents/skills/` 下的各个 Skill 子目录。每个子目录至少包含一个
+`SKILL.md`，文件开头使用 YAML Frontmatter 声明 `name` 和 `description`：
+
+```markdown
+---
+name: pdf
+description: 读取、拆分和合并 PDF 文件。
+---
+
+# PDF 技能
+
+这里是完整说明，只有在模型调用 `loadSkill` 时才会进入上下文。
+```
+
+初始化时只读取 `name` 和 `description`，并把它们加入 System Prompt。模型需要
+详细步骤时调用：
+
+```text
+loadSkill(name="pdf")
+loadSkill(name="pdf", filename="scripts/merge.py")
+```
+
+`filename` 支持相对 Skill 目录、项目根目录相对路径和绝对路径；只给文件名时会
+递归搜索该 Skill 目录。若存在多个同名文件，工具会返回候选路径。所有附件读取
+都被限制在对应 Skill 目录内部。
 
 ### searchWeb
 

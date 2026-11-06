@@ -1,22 +1,49 @@
 Screen {
-    background: $surface;
+    background: $background;
+    color: $foreground;
+}
+
+#top-bar {
+    height: 3;
+    padding: 0 2;
+    background: $panel;
+    border-bottom: solid $boost;
+    align: left middle;
+}
+
+#brand {
+    width: auto;
+    height: 1fr;
+    content-align: left middle;
+    color: $primary;
+}
+
+#session {
+    width: 1fr;
+    height: 1fr;
+    content-align: right middle;
+    color: $text-muted;
 }
 
 #chat {
     height: 1fr;
-    padding: 1 2;
+    padding: 1 3;
+    background: $background;
     scrollbar-gutter: stable;
+    scrollbar-color: $primary 40%;
+    scrollbar-background: $surface;
 }
 
 .message {
     height: auto;
     margin: 0 0 1 0;
-    padding: 0 1;
+    padding: 0 2;
     border-left: thick $primary;
 }
 
 .message-user {
     border-left: thick $accent;
+    background: $surface;
 }
 
 .message-assistant {
@@ -28,14 +55,44 @@ Screen {
     background: $boost;
 }
 
+.message-system {
+    border-left: thick $boost;
+}
+
+.message-welcome {
+    border-left: thick $primary;
+    background: $surface;
+}
+
 .message-error {
     border-left: thick $error;
+    background: $surface;
 }
 
 .message-role {
     height: auto;
     color: $text-muted;
     text-style: bold;
+}
+
+.message-user .message-role {
+    color: $accent;
+}
+
+.message-assistant .message-role {
+    color: $success;
+}
+
+.message-tool .message-role {
+    color: $warning;
+}
+
+.message-welcome .message-role {
+    color: $primary;
+}
+
+.message-error .message-role {
+    color: $error;
 }
 
 .message-body {
@@ -49,17 +106,27 @@ Screen {
 
 #status-bar {
     height: 1;
-    padding: 0 2;
-    background: $panel;
+    padding: 0 3;
+    background: $surface;
     color: $text-muted;
 }
 
 #chat-input {
     height: 3;
-    margin: 0 1;
-    border: tall $primary;
+    margin: 0 2;
+    padding: 0 1;
+    background: $surface;
+    color: $foreground;
+    border: round $boost;
 }
 
 #chat-input:focus {
-    border: tall $accent;
+    border: round $primary;
+}
+
+#hint-bar {
+    height: 1;
+    padding: 0 3;
+    background: $panel;
+    color: $text-muted;
 }

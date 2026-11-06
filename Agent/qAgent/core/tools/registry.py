@@ -23,6 +23,9 @@ class ToolRegistry:
             raise ValueError(f"工具已注册: {name}")
         self._tools[name] = tool
 
+    def __len__(self) -> int:
+        return len(self._tools)
+
     def schemas(self) -> list[dict[str, Any]]:
         return [tool.spec.as_openai_schema() for tool in self._tools.values()]
 
