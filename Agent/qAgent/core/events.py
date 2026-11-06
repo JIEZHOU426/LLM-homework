@@ -56,10 +56,50 @@ class AgentError:
     message: str
 
 
+@dataclass(frozen=True, slots=True)
+class ContextWarning:
+    """Context usage crossed the compaction threshold."""
+
+    used_tokens: int
+    limit_tokens: int
+    threshold: float
+
+
+@dataclass(frozen=True, slots=True)
+class CompactionStarted:
+    """A manual /compact started; only the summary LLM call may run now."""
+
+    message_count: int
+    tokens_before: int
+
+
+@dataclass(frozen=True, slots=True)
+class CompactionCompleted:
+    """Compaction finished; the raw conversation was archived and replaced."""
+
+    summary: str
+    archive_id: str
+    archive_path: str
+    tokens_before: int
+    tokens_after: int
+    transcript: str  # 压缩前的原始会话，供 TUI 双栏面板展示
+
+
+@dataclass(frozen=True, slots=True)
+class CompactionFailed:
+    """Compaction aborted; the conversation was left unchanged."""
+
+    message: str
+
+
 AgentEvent = Union[
     TextDelta,
     ToolCallRequested,
     ToolCallCompleted,
     TurnCompleted,
     AgentError,
+    ContextWarning,
+    CompactionStarted,
+    CompactionCompleted,
+    CompactionFailed,
 ]

@@ -1,11 +1,31 @@
+; qAgent 配置模板。运行时若当前目录没有 config.ini，程序会自动创建
+; 一份带 mock 占位信息的副本（见 tui/bootstrap.py），用户填写占位内容
+; 后重启即可生效。此模板供手动参考使用。
+
 [LLM]
 api_key = sk-your-deepseek-key-here
 base_url = https://api.deepseek.com/v1
 model = deepseek-chat
 timeout = 120
+; 模型上下文窗口大小（tokens）。不配置时按 131072（128k）默认值处理，
+; 顶部栏会显示「（默认）」提示
+; context_window = 65536
 
 [files]
 max_text_bytes = 2097152
+
+[compact]
+threshold = 0.6
+summary_tokens = 5000
+
+[mcp]
+; MCP 工具调用超时与服务器连接超时（秒）
+request_timeout = 120
+connect_timeout = 20
+
+[ui]
+; 工具返回结果在 TUI 中展示的最大字符数
+tool_result_max_chars = 4000
 
 [search]
 baidu_api_key = bce-v3/your-baidu-qianfan-api-key

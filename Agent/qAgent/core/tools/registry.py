@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Iterable
 
@@ -26,11 +27,18 @@ class ToolRegistry:
     def __len__(self) -> int:
         return len(self._tools)
 
+    def __contains__(self, name: object) -> bool:
+        return name in self._tools
+
     def schemas(self) -> list[dict[str, Any]]:
         return [tool.spec.as_openai_schema() for tool in self._tools.values()]
 
-    def execute(self, name: str, raw_arguments: str) -> str:
-        """Parse model-provided JSON, validate required fields and dispatch."""
+    def _resolve(
+        self,
+        name: str,
+        raw_arguments: str,
+    ) -> tuple[Tool, dict[str, Any]] | str:
+        """Shared validation for both sync and async dispatch."""
 
         try:
             arguments = json.loads(raw_arguments or "{}")
@@ -50,6 +58,31 @@ class ToolRegistry:
         ]
         if missing:
             return json_error(f"缺少参数: {', '.join(missing)}")
+        return tool, arguments
+
+    async def aexecute(self, name: str, raw_arguments: str) -> str:
+        """Async dispatch: await async-aware tools, off-load sync ones."""
+
+        resolved = self._resolve(name, raw_arguments)
+        if isinstance(resolved, str):
+            return resolved
+        tool, arguments = resolved
+
+        try:
+            run_async = getattr(tool, "run_async", None)
+            if run_async is not None:
+                return await run_async(arguments)
+            return await asyncio.to_thread(tool.run, arguments)
+        except Exception as exc:  # noqa: BLE001 - errors are data for the model
+            return json_error(str(exc))
+
+    def execute(self, name: str, raw_arguments: str) -> str:
+        """Parse model-provided JSON, validate required fields and dispatch."""
+
+        resolved = self._resolve(name, raw_arguments)
+        if isinstance(resolved, str):
+            return resolved
+        tool, arguments = resolved
 
         try:
             return tool.run(arguments)

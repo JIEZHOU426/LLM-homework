@@ -10,6 +10,8 @@ STATUS_STYLES = {
     "idle": ("#3fb950", "●", "就绪"),
     "busy": ("#d29922", "◐", "思考中"),
     "tool": ("#58a6ff", "⚙", "执行工具"),
+    "compact": ("#58a6ff", "❉", "压缩上下文"),
+    "warning": ("#d29922", "⚠", "上下文告急 · /compact"),
     "error": ("#f85149", "✖", "出错"),
 }
 
@@ -26,11 +28,13 @@ class AppHeader(Horizontal):
             "◆ [b]qAgent[/b]  [dim]DeepSeek · Terminal Agent[/dim]",
             id="brand",
         )
+        self._usage = Static("", id="usage")
         self._session = Static("", id="session")
         self._refresh_display()
 
     def compose(self):
         yield self._brand
+        yield self._usage
         yield self._session
 
     def on_mount(self) -> None:
@@ -44,6 +48,14 @@ class AppHeader(Horizontal):
         self._state = state
         self._detail = detail or STATUS_STYLES.get(state, ("", "", state))[2]
         self._refresh_display()
+
+    def set_usage(self, text: str, warn: bool = False) -> None:
+        """Token usage in k/k, shown prominently in the middle of the bar."""
+        if not text:
+            self._usage.update("")
+            return
+        color = "#ff7b72" if warn else "#e6edf3"
+        self._usage.update(f"[b {color}]⇅ {text}[/]")
 
     def _refresh_display(self) -> None:
         color, icon, label = STATUS_STYLES.get(
