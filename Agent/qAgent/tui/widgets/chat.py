@@ -6,11 +6,12 @@ from textual.containers import ScrollableContainer, Vertical
 from textual.widgets import Markdown, Static
 
 ROLE_LABELS = {
-    "user": "你",
-    "assistant": "qAgent",
-    "tool": "工具",
-    "system": "系统",
-    "error": "错误",
+    "user": "❯ 你",
+    "assistant": "◆ qAgent",
+    "tool": "⚙ 工具",
+    "system": "◇ 系统",
+    "welcome": "◇ 欢迎",
+    "error": "✖ 错误",
 }
 
 
