@@ -1,6 +1,4 @@
-# LLM-Course
-
-极简 DeepSeek 命令行聊天程序。
+# Project1 — 极简 DeepSeek 命令行聊天
 
 ## 文件
 

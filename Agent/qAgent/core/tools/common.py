@@ -8,8 +8,11 @@ from pathlib import Path
 from typing import Any
 
 
-def json_error(message: str) -> str:
-    return json.dumps({"error": message}, ensure_ascii=False)
+def json_error(message: str, code: str | None = None) -> str:
+    payload: dict[str, Any] = {"error": message}
+    if code:
+        payload["code"] = code
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def json_ok(**payload: Any) -> str:
@@ -23,6 +26,19 @@ def resolve_path(raw: str) -> Path:
     if not path.is_absolute():
         path = Path.cwd() / path
     return path.resolve()
+
+
+def ensure_within(path: Path, root: Path) -> Path:
+    """Reject paths that escape ``root`` (``PATH_OUTSIDE_WORKSPACE``)."""
+
+    resolved = path.resolve()
+    boundary = root.resolve()
+    if resolved == boundary or resolved.is_relative_to(boundary):
+        return resolved
+    raise ValueError(
+        f"PATH_OUTSIDE_WORKSPACE: {resolved} 不在允许的工作目录 {boundary} 内"
+        "（[files] confine_to_workspace = true；如需跨目录操作请改为 false）"
+    )
 
 
 def detect_encoding(data: bytes) -> str | None:

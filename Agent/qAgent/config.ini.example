@@ -13,6 +13,21 @@ timeout = 120
 
 [files]
 max_text_bytes = 2097152
+; 路径边界：true = 文件工具只能访问工作目录内部（越界返回 PATH_OUTSIDE_WORKSPACE）
+confine_to_workspace = true
+
+[agent]
+; 单轮最多工具往返次数 / 单轮总时限（秒）
+max_steps = 12
+turn_timeout = 600
+
+[agents]
+; 项目规则文件名（AGENT.md 与 AGENTS.md 互为等价名），可用 QAGENT_AGENTS_FILE 覆盖
+filename = AGENT.md
+
+[log]
+; 工具调用日志写入 <工作目录>/.agents/logs/tool-calls.jsonl
+enabled = true
 
 [compact]
 threshold = 0.6

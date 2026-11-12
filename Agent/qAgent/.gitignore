@@ -3,3 +3,5 @@ config.ini
 __pycache__/
 *.pyc
 .venv/
+# 运行时产物：会话事件日志、上下文归档、工具调用日志、技能目录
+.agents/

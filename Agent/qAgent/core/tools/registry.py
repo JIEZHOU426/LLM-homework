@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Iterable
 
+from ..call_log import ToolCallLog
 from .base import Tool
 from .common import json_error
 
@@ -13,10 +15,19 @@ from .common import json_error
 class ToolRegistry:
     """Keeps tools decoupled from the conversation loop."""
 
-    def __init__(self, tools: Iterable[Tool] = ()) -> None:
+    def __init__(
+        self,
+        tools: Iterable[Tool] = (),
+        tool_log: ToolCallLog | None = None,
+    ) -> None:
         self._tools: dict[str, Tool] = {}
+        self._log = tool_log
         for tool in tools:
             self.register(tool)
+
+    @property
+    def tool_log(self) -> ToolCallLog | None:
+        return self._log
 
     def register(self, tool: Tool) -> None:
         name = tool.spec.name
@@ -65,26 +76,63 @@ class ToolRegistry:
 
         resolved = self._resolve(name, raw_arguments)
         if isinstance(resolved, str):
+            self._record(name, resolved, 0, raw_arguments)
             return resolved
         tool, arguments = resolved
 
+        started = time.perf_counter()
         try:
             run_async = getattr(tool, "run_async", None)
             if run_async is not None:
-                return await run_async(arguments)
-            return await asyncio.to_thread(tool.run, arguments)
+                result = await run_async(arguments)
+            else:
+                result = await asyncio.to_thread(tool.run, arguments)
         except Exception as exc:  # noqa: BLE001 - errors are data for the model
-            return json_error(str(exc))
+            result = json_error(str(exc))
+        self._record(name, result, started, arguments)
+        return result
 
     def execute(self, name: str, raw_arguments: str) -> str:
         """Parse model-provided JSON, validate required fields and dispatch."""
 
         resolved = self._resolve(name, raw_arguments)
         if isinstance(resolved, str):
+            self._record(name, resolved, 0, raw_arguments)
             return resolved
         tool, arguments = resolved
 
+        started = time.perf_counter()
         try:
-            return tool.run(arguments)
+            result = tool.run(arguments)
         except Exception as exc:  # noqa: BLE001 - errors are data for the model
-            return json_error(str(exc))
+            result = json_error(str(exc))
+        self._record(name, result, started, arguments)
+        return result
+
+    def _record(
+        self,
+        name: str,
+        result: str,
+        started: float | None,
+        arguments: Any,
+    ) -> None:
+        """Append one line to the tool-call journal (never raises)."""
+
+        if self._log is None:
+            return
+        dur_ms = 0
+        if isinstance(started, float):
+            dur_ms = int((time.perf_counter() - started) * 1000)
+        parsed: Any = arguments
+        if isinstance(arguments, str):
+            try:
+                parsed = json.loads(arguments or "{}")
+            except json.JSONDecodeError:
+                parsed = None
+        self._log.record(
+            name,
+            ok=not result.startswith('{"error"'),
+            dur_ms=dur_ms,
+            result=result,
+            arguments=parsed,
+        )

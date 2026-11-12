@@ -30,7 +30,7 @@ from core import (
     ToolCallRequested,
     TurnCompleted,
 )
-from core.agents_md import AGENTS_MD_FILENAME, agents_md_path
+from core.agents_md import agents_md_path, resolve_agents_md_path
 from core.sessions import (
     SessionLog,
     SessionSummary,
@@ -238,11 +238,17 @@ class QAgentApp(App[None]):
             f"工具 **{self._agent.tool_count}**（MCP 异步加载中）",
         )
         if self._agent.agents_md:
+            loaded_path = (
+                resolve_agents_md_path(
+                    settings.workspace_root, settings.agents_filename
+                )
+                or agents_md_path(settings.workspace_root, settings.agents_filename)
+            )
             await self.chat.add_message(
                 "system",
-                "已加载项目约定 **AGENTS.md**（一次注入、会话内全程复用，"
+                f"已加载项目约定 **{loaded_path.name}**（一次注入、会话内全程复用，"
                 "并持久化到会话事件日志）："
-                f"`{agents_md_path(settings.workspace_root)}`",
+                f"`{loaded_path}`",
             )
 
         # MCP 异步加载：先进入 TUI，连上后台后动态刷新工具与边栏。
@@ -413,7 +419,7 @@ class QAgentApp(App[None]):
             messages=list(agent.messages),
             agents_md=(
                 {
-                    "path": AGENTS_MD_FILENAME,
+                    "path": settings.agents_filename,
                     "content": agents_md,
                 }
                 if agents_md
@@ -444,7 +450,8 @@ class QAgentApp(App[None]):
         if agent is not None and agent.agents_md:
             await self.chat.add_message(
                 "system",
-                "已重新注入项目约定 **AGENTS.md**（会话内全程复用）。",
+                f"已重新注入项目约定 **{self._settings.agents_filename}**"
+                "（会话内全程复用）。",
             )
         await self.chat.add_message(
             "system",
@@ -458,7 +465,9 @@ class QAgentApp(App[None]):
 
         self.chat_input.focus()
         summaries = list_sessions(self._settings.workspace_root)
-        summary = await self.push_screen_wait(SessionListScreen(summaries))
+        summary = await self.push_screen_wait(
+            SessionListScreen(summaries, self._settings.workspace_root)
+        )
         if summary is None:
             self.chat_input.focus()
             return
@@ -515,11 +524,15 @@ class QAgentApp(App[None]):
 
     async def _show_agents_status(self) -> None:
         agent = self._agent
-        path = agents_md_path(self._settings.workspace_root)
+        settings = self._settings
+        name = settings.agents_filename
+        path = resolve_agents_md_path(
+            settings.workspace_root, name
+        ) or agents_md_path(settings.workspace_root, name)
         content = agent.agents_md if agent else ""
         if content:
             message = (
-                "### AGENTS.md\n\n"
+                f"### {path.name}\n\n"
                 f"- 状态：**已注入**（一次注入，会话内全程复用）\n"
                 f"- 文件：`{path}`\n"
                 f"- 字符数：{len(content)}\n"
@@ -529,14 +542,16 @@ class QAgentApp(App[None]):
             )
         elif path.exists():
             message = (
-                f"### AGENTS.md\n\n文件存在（`{path}`）但本会话未注入，"
+                f"### {path.name}\n\n文件存在（`{path}`）但本会话未注入，"
                 "重启或 `/new` 后生效。"
             )
         else:
             message = (
-                "### AGENTS.md\n\n"
+                f"### {path.name}\n\n"
                 f"当前目录未找到 `{path}`。创建该文件后，新会话启动时会将"
                 "其内容一次性注入聊天历史并持久化到会话事件日志。"
+                "（文件名可在 `[agents] filename` 或环境变量 "
+                "`QAGENT_AGENTS_FILE` 中改，`AGENT.md` 与 `AGENTS.md` 互为等价名）"
             )
         await self.chat.add_message("system", message)
 

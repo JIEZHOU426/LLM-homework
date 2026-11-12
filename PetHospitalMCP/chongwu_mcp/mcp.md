@@ -1,17 +1,14 @@
-# 宠物医院管理系统 MCP Server — 首期：get_pets 工具开发
+# 宠物医院 MCP Server — 设计说明
 
-## 核心变更（相对于上期）
-- **语言**：Python 3.10+（非 Go）
-- **范围**：仅实现 `get_pets` 一个 Tool，不做 Resources/Prompts/其他工具
-- **目标**：列出宠物档案，支持多参数筛选
+> 本文描述**已实现**的行为，与 `src/pet_hospital_mcp/__init__.py` 保持一致；
+> 安装、配置与运行步骤见同目录 `README.md`。
 
 ## 协议与 SDK
 
-- **MCP 协议版本**：`2026-07-28`（最新版）
-- **SDK**：`mcp` Python SDK v2.x（`pip install "mcp[cli]"`），v2 原生支持 2026-07-28 规范
-- **核心类**：`from mcp.server import MCPServer`（v1 的 `FastMCP` 已废弃）
-- **装饰器**：`@mcp.tool()` 语法不变
-- **传输层**：stdio
+- MCP Python SDK `>= 2.0`（`mcp[cli]`），核心类 `from mcp.server import MCPServer`
+  （v1 的 `FastMCP` 在新版本中已不再是入口），工具装饰器仍是 `@mcp.tool()`；
+- 传输：**stdio**（由 MCP 客户端以子进程方式拉起），因此日志只能写 stderr；
+- 错误：`from mcp.server.mcpserver.exceptions import ToolError`。
 
 ```python
 from mcp.server import MCPServer
@@ -19,105 +16,75 @@ from mcp.server import MCPServer
 mcp = MCPServer("PetHospital")
 
 @mcp.tool()
-def get_pets(...) -> dict:
-    """..."""
+def get_pets(...) -> dict: ...
 ```
 
-## 项目结构
+## 工具清单（2 个）
 
-```
-D:\LLM\PetHospitalMCP\
-├── .opencode\
-│   └── opencode.jsonc      ← 已有（需更新配置指向 pet-hospital-mcp）
-├── src\
-│   └── server.py           ← 主服务器文件
-├── pyproject.toml            ← 依赖管理（使用 uv）
-└── README.md
-```
+| 工具 | 作用 | 端点 |
+| --- | --- | --- |
+| `add_pet` | 新建宠物档案（非幂等） | `POST /pets` |
+| `get_pets` | 按条件查档，至少给一个过滤条件 | `GET /pets`、`GET /pets/search`、`GET /pets/by-{dimension}` |
 
-## 依赖
+> 首期只规划了 `get_pets`，`add_pet` 随后补上；现在两者都在 `list_tools` 里可见，
+> 且都有完整 docstring 与参数约束。
 
-```toml
-# pyproject.toml
-[project]
-name = "pet-hospital-mcp"
-requires-python = ">=3.10"
-dependencies = [
-    "mcp[cli]>=2.0.0",
-    "httpx>=0.27.0",
-    "pydantic>=2.0.0",
-]
+## 参数约束
 
-[tool.uv.scripts]
-pet-hospital-mcp = "src.server:mcp.run()"
-```
+- `add_pet` 必填 `ownerName`（≤50 字）、`ownerPhone`（≤20）、`disease`（≤200）、
+  `doctor`（≤50），可选 `name` / `species` / `status`；
+- `get_pets` 全部可选，但**至少一个非 `None`**：`species`、`page`(≥1)、
+  `pageSize`(1–100)、`sort`、`ownerName`、`ownerPhone`、`doctor`、`disease`、
+  `status`、`keyword`；
+- 校验失败抛 `ToolError`，`code = VALIDATION_ERROR`。
 
-## 宿主系统 API
+## 路由规则（`get_pets`）
 
-- **基础 URL**：`http://127.0.0.1:8080/api/v1`
-- **核心端点**：`GET /api/v1/pets` — 查询宠物列表
+| 条件 | 端点 |
+| --- | --- |
+| 给了 `keyword` | `GET /pets/search?keyword=...` |
+| 只给一个维度筛选，且无 `page`/`pageSize`/`sort` | `GET /pets/by-{species|owner|doctor|disease|status}` |
+| 其他（多维度 / 排序 / 分页） | `GET /pets?...` |
 
-`GET /api/v1/pets` 支持的查询参数（全部来自 API 文档）：
+维度 → 端点的映射：`ownerName` 与 `ownerPhone` 都走 `by-owner`（后端按电话还是
+姓名匹配由后端决定，工具只负责把值传过去）。
 
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `species` | string | 按种类筛选（如"犬"、"猫"） |
-| `page` | int | 页码，默认1 |
-| `pageSize` | int | 每页条数，默认10 |
-| `sort` | string | 排序方式（如"最新建档"、"总花费从高到低"） |
-| `ownerName` | string | 按主人姓名筛选（通过 `/pets/by-owner`） |
-| `ownerPhone` | string | 按主人电话筛选 |
-| `doctor` | string | 按主治医生筛选（通过 `/pets/by-doctor`） |
-| `disease` | string | 按疾病筛选（通过 `/pets/by-disease`） |
-| `status` | string | 按就诊状态筛选（如"住院中"、"已康复"） |
-| `keyword` | string | 全文检索关键词（通过 `/pets/search`） |
+## 返回结构
 
-## get_pets Tool 设计要求
-
-1. **函数签名**：使用 Python type hints 作为 MCP inputSchema
-2. **参数说明**：
-   - 所有过滤参数均为 **可选**（Optional）
-   - 使用 `pydantic` 或 `Annotated` 定义参数约束
-   - 至少一个过滤参数必须提供（不允许无条件全量查询）
-3. **行为逻辑**：
-   - 根据传入参数调用对应的宿主 API 端点
-   - 单一维度过滤走 `/pets/by-{dimension}` 端点
-   - 多维度组合或通用排序/分页走 `/pets` 端点
-   - 全文检索走 `/pets/search`
-   - 未知参数组合返回错误信息
-4. **返回值**：
-   - 结构化 JSON，包含 `pets`（列表）、`total`（总数）、`page`（页码）、`pageSize`（每页）
-   - 每只宠物包含：id、name、species、ownerName、ownerPhone、disease、doctor、status、totalCost、visitCount
-5. **错误处理**：
-   - HTTP 错误转换为 MCP 工具错误
-   - 无匹配结果返回空列表而非错误
-6. **Docstring**：清晰描述工具功能、参数含义和返回结构
-
-## 配置文件更新
-
-更新 `D:\LLM\PetHospitalMCP\.opencode\opencode.jsonc`：
-```jsonc
-{
-  "mcp": {
-    "servers": {
-      "Bazi": {
-        "command": "npx",
-        "args": ["bazi-mcp"],
-        "cwd": "D:\\makeai"
-      },
-      "PetHospital": {
-        "command": "python",
-        "args": ["-m", "pet_hospital_mcp"],
-        "cwd": "D:\\LLM\\PetHospitalMCP\\chongwu_mcp"
-      }
-    }
-  }
-}
+```json
+{ "pets": [ { "id": 1, "name": "豆豆", "totalCost": 0, "visitCount": 0, "...": "..." } ],
+  "total": 12, "page": 1, "pageSize": 10 }
 ```
 
-## 完成标准
+`add_pet` 返回 `{ "pet": {...}, "code": 201, "message": "success" }`。
 
-1. `pip install "mcp[cli]"` 安装成功
-2. `python src/server.py` 以 stdio 模式启动无报错
-3. `mcp dev src/server.py` 能正常启动 MCP Inspector
-4. 调用 `get_pets` 工具能正确从 `http://127.0.0.1:8080/api/v1/pets` 获取并返回过滤后的宠物数据
+## 可靠性
+
+| 机制 | 实现 |
+| --- | --- |
+| 超时 | `PET_HOSPITAL_TIMEOUT`（默认 10 秒） |
+| 重试 | `PET_HOSPITAL_RETRIES`（默认 2）；传输错误所有方法重试，5xx 只重试 GET；退避 `0.3s × 第 n 次` |
+| 日志 | stderr，一行一次：方法 / 路径 / 状态码 / 耗时 / `attempt n/m` |
+| 错误码 | `UPSTREAM_UNREACHABLE`、`UPSTREAM_TIMEOUT`、`UPSTREAM_HTTP_ERROR`、`UPSTREAM_BAD_PAYLOAD`、`VALIDATION_ERROR` |
+| 响应体 | 不整段透传：JSON 取 `message`/`msg`，否则截断 160 字 |
+
+## 配置（MCP 客户端登记）
+
+见 `README.md` 的 `mcpServers` 示例；仓库根与 `PetHospitalMCP/opencode.json`
+各有一份等价配置（stdio、`uv run python -m pet_hospital_mcp`）。
+
+## 验证
+
+```bash
+python -m unittest discover -s tests -t . -v   # 9 个用例，不需要后端
+python src/test_mcp_client.py                  # 端到端，需要后端已启动
+```
+
+## 与早期计划的差异
+
+- 早期计划里的 `D:\LLM\PetHospitalMCP\.opencode\opencode.jsonc` 并不存在，
+  实际配置在 `PetHospitalMCP/opencode.json` 与仓库根 `opencode.json`；
+- 早期计划写的 `[tool.uv.scripts] pet-hospital-mcp = "src.server:mcp.run()"`
+  不是合法配置，实际入口是 `[project.scripts] pet-hospital-mcp =
+  "pet_hospital_mcp:main"`（等价于 `python -m pet_hospital_mcp`）；
+- 早期只做 `get_pets`，现已补 `add_pet`、重试、日志、错误码与单元测试。

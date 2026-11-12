@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -13,6 +14,7 @@ from .agents_md import (
     build_agents_md_message,
     read_agents_md,
 )
+from .call_log import ToolCallLog
 from .compact import (
     SUMMARY_SYSTEM_PROMPT,
     archive_identifier,
@@ -56,6 +58,10 @@ class ChatAgent:
         skills: SkillCatalog | None = None,
     ) -> None:
         self._settings = settings
+        self._tool_log = ToolCallLog(
+            settings.workspace_root,
+            enabled=settings.tool_log_enabled,
+        )
         self._skills = (
             skills
             if skills is not None
@@ -69,10 +75,15 @@ class ChatAgent:
             settings.baidu_search_api_key,
             self._skills,
             settings.workspace_root,
+            settings.confine_paths,
+            self._tool_log,
         )
         self._client = client or create_async_client(settings)
         self._mcp_manager: McpToolManager | None = None
-        self._agents_md: str = read_agents_md(settings.workspace_root)
+        self._agents_md: str = read_agents_md(
+            settings.workspace_root,
+            settings.agents_filename,
+        )
         self._system_message = self._build_system_message()
         self._messages: list[dict[str, Any]] = []
         self._compacting = False
@@ -96,6 +107,18 @@ class ChatAgent:
     @property
     def tool_count(self) -> int:
         return len(self._registry)
+
+    @property
+    def tool_log(self) -> ToolCallLog:
+        """The JSONL tool-call journal (may be disabled via config)."""
+
+        return self._tool_log
+
+    @property
+    def max_steps(self) -> int:
+        """Hard cap on tool round-trips inside one user turn."""
+
+        return self._settings.max_steps
 
     @property
     def context_window(self) -> int:
@@ -188,10 +211,12 @@ class ChatAgent:
         self._inject_agents_md(self._agents_md)
 
     def _inject_agents_md(self, content: str) -> None:
-        """Append the AGENTS.md message once, at the head of the history."""
+        """Append the project-rules message once, at the head of the history."""
         if not content:
             return
-        self._messages.append(build_agents_md_message(content))
+        self._messages.append(
+            build_agents_md_message(content, self._settings.agents_filename)
+        )
 
     def restore(self, *, agents_md: str | None, messages: list[dict[str, Any]]) -> None:
         """Rebuild a session from its persisted event log.
@@ -213,8 +238,11 @@ class ChatAgent:
         if self._system_message is not None:
             self._messages.append(dict(self._system_message))
         if not self._agents_md and self._system_message is None:
-            # No skills prompt either; still honour an on-disk AGENTS.md.
-            self._agents_md = read_agents_md(self._settings.workspace_root)
+            # No skills prompt either; still honour an on-disk rules file.
+            self._agents_md = read_agents_md(
+                self._settings.workspace_root,
+                self._settings.agents_filename,
+            )
         self._inject_agents_md(self._agents_md)
         for message in messages:
             if message.get("role") == "system":
@@ -248,7 +276,26 @@ class ChatAgent:
 
         self._messages.append({"role": "user", "content": user_input})
 
+        # Two independent guards: a step cap (a model that keeps calling tools
+        # would otherwise loop forever) and a wall-clock cap for the whole turn.
+        deadline = time.monotonic() + self._settings.turn_timeout
+        step = 0
         while True:
+            step += 1
+            if step > self._settings.max_steps:
+                yield AgentError(
+                    f"本轮工具调用已达上限（{self._settings.max_steps} 步），"
+                    "已停止继续调用工具。请拆小任务后重试，或在 config.ini 的 "
+                    "[agent] max_steps 调大该上限。"
+                )
+                return
+            if time.monotonic() > deadline:
+                yield AgentError(
+                    f"本轮处理超过时限（{self._settings.turn_timeout:.0f} 秒），"
+                    "已停止。可在 config.ini 的 [agent] turn_timeout 调整。"
+                )
+                return
+
             content_parts: list[str] = []
             pending_calls: dict[int, dict[str, Any]] = {}
             snapshot = len(self._messages)
@@ -488,7 +535,12 @@ class ChatAgent:
         )
         system = dict(self._system_message) if self._system_message else None
         agents = (
-            build_agents_md_message(self._agents_md) if self._agents_md else None
+            build_agents_md_message(
+                self._agents_md,
+                self._settings.agents_filename,
+            )
+            if self._agents_md
+            else None
         )
         self._messages = (
             ([system] if system else [])

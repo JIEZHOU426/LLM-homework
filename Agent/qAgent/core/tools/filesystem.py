@@ -14,6 +14,7 @@ from typing import Any, Mapping
 from .base import FunctionTool, Tool, ToolSpec
 from .common import (
     ensure_safe_delete,
+    ensure_within,
     is_text_data,
     json_error,
     json_ok,
@@ -39,8 +40,25 @@ def _string_argument(
 
 
 class FileSystemTools:
-    def __init__(self, max_text_bytes: int) -> None:
+    def __init__(
+        self,
+        max_text_bytes: int,
+        workspace_root: Path | None = None,
+        confine: bool = False,
+    ) -> None:
         self._max_text_bytes = max_text_bytes
+        self._workspace_root = (
+            Path(workspace_root) if workspace_root is not None else Path.cwd()
+        )
+        self._confine = confine
+
+    def _resolve(self, raw: str) -> Path:
+        """Resolve a tool argument, enforcing the workspace boundary if enabled."""
+
+        path = resolve_path(raw)  # 解析（含 ~ 展开与绝对化），边界另行判断
+        if self._confine:
+            path = ensure_within(path, self._workspace_root)
+        return path
 
     def build(self) -> list[Tool]:
         return [
@@ -236,7 +254,7 @@ class FileSystemTools:
         return json_ok(cwd=str(Path.cwd()))
 
     def _list_directory(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path", default="."))
+        path = self._resolve(_string_argument(arguments, "path", default="."))
         if not path.exists():
             return json_error(f"目录不存在: {path}")
         if not path.is_dir():
@@ -270,7 +288,7 @@ class FileSystemTools:
         return json_ok(path=str(path), count=len(entries), entries=entries)
 
     def _get_file_type(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path"))
+        path = self._resolve(_string_argument(arguments, "path"))
         if not path.exists():
             return json_error(f"路径不存在: {path}")
 
@@ -305,7 +323,7 @@ class FileSystemTools:
         return json_ok(**result)
 
     def _read_text_file(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path"))
+        path = self._resolve(_string_argument(arguments, "path"))
         if not path.exists():
             return json_error(f"文件不存在: {path}")
         if not path.is_file():
@@ -328,7 +346,7 @@ class FileSystemTools:
         if not filename or Path(filename).name != filename:
             return json_error("filename 必须是文件名，不能包含路径分隔符")
 
-        directory_path = resolve_path(directory)
+        directory_path = self._resolve(directory)
         if directory_path.exists() and not directory_path.is_dir():
             return json_error(f"不是目录: {directory_path}")
         directory_path.mkdir(parents=True, exist_ok=True)
@@ -345,7 +363,7 @@ class FileSystemTools:
         )
 
     def _edit_file(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path"))
+        path = self._resolve(_string_argument(arguments, "path"))
         content = _string_argument(arguments, "content")
         mode = _string_argument(arguments, "mode", default="overwrite")
         if not path.exists():
@@ -374,7 +392,7 @@ class FileSystemTools:
         )
 
     def _create_directory(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path"))
+        path = self._resolve(_string_argument(arguments, "path"))
         if path.exists():
             if path.is_dir():
                 return json_error(f"目录已存在: {path}")
@@ -383,7 +401,7 @@ class FileSystemTools:
         return json_ok(path=str(path), created=True)
 
     def _delete_directory(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path"))
+        path = self._resolve(_string_argument(arguments, "path"))
         if not path.exists():
             return json_error(f"目录不存在: {path}")
         if not path.is_dir() or path.is_symlink():
@@ -397,7 +415,7 @@ class FileSystemTools:
         return json_ok(path=str(path), deleted=True)
 
     def _delete_file(self, arguments: Mapping[str, Any]) -> str:
-        path = resolve_path(_string_argument(arguments, "path"))
+        path = self._resolve(_string_argument(arguments, "path"))
         if not path.exists() and not path.is_symlink():
             return json_error(f"文件不存在: {path}")
         if path.is_dir() and not path.is_symlink():
@@ -411,8 +429,8 @@ class FileSystemTools:
         return json_ok(path=str(path), deleted=True)
 
     def _rename_path(self, arguments: Mapping[str, Any]) -> str:
-        source_path = resolve_path(_string_argument(arguments, "source"))
-        target_path = resolve_path(_string_argument(arguments, "target"))
+        source_path = self._resolve(_string_argument(arguments, "source"))
+        target_path = self._resolve(_string_argument(arguments, "target"))
         if not source_path.exists() and not source_path.is_symlink():
             return json_error(f"源路径不存在: {source_path}")
         if target_path.exists() or target_path.is_symlink():
