@@ -33,6 +33,24 @@ timeout = 120
 [files]
 ; 工具读写文本文件的大小上限（字节）
 max_text_bytes = 2097152
+; 路径边界：true = 文件工具的路径必须落在工作目录内（越界返回 PATH_OUTSIDE_WORKSPACE）
+; 需要读写工作目录之外的绝对路径时改为 false
+confine_to_workspace = true
+
+[agent]
+; 单轮最多允许的工具往返次数（防止模型无限调用工具）
+max_steps = 12
+; 单轮总时限（秒），超时即中止本轮
+turn_timeout = 600
+
+[agents]
+; 项目规则文件名，AGENT.md 与 AGENTS.md 互为等价名；
+; 也可用环境变量 QAGENT_AGENTS_FILE 覆盖
+filename = AGENT.md
+
+[log]
+; 工具调用日志：<工作目录>/.agents/logs/tool-calls.jsonl（一行一次调用，参数值不入日志）
+enabled = true
 
 [compact]
 ; 上下文用量达到该比例时告警并暂停新提示词，直到 /compact 完成

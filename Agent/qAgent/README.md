@@ -9,14 +9,24 @@
 ```text
 qAgent/
 ├── main.py                  # TUI 启动入口（含 config.ini 引导）
+├── AGENT.md                 # 项目规则示例（启动时一次性注入会话）
 ├── requirements.txt
 ├── .env.example
 ├── config.ini.example
+├── tests/                   # unittest 自测（无需网络与真实 Key）
+│   ├── test_clock.py        # 闰年规则边界 + 真实日期输出
+│   ├── test_filesystem.py   # 10 类文件语义 + 参数错误 + 路径边界
+│   ├── test_skills.py       # 技能创建 / 拒绝覆盖 / 发现 / 加载
+│   ├── test_sessions.py     # 会话保存 → 列表 → 恢复
+│   ├── test_call_log.py     # 工具调用日志（含错误码、参数脱敏）
+│   ├── test_agents_md.py    # 规则文件命名与等价名回退
+│   └── test_turn_guard.py   # 单轮工具步数上限真实中止循环
 ├── core/                    # 业务核心（禁止导入 tui / web / desktop）
 │   ├── config.py            # Settings：读取 .env 与 config.ini（含全部默认值）
 │   ├── events.py            # 核心向前端输出的事件协议
 │   ├── agent.py             # ChatAgent：对话状态 + 流式 + 工具调用循环
-│   ├── agents_md.py         # AGENTS.md 读取与注入消息构造
+│   ├── agents_md.py         # AGENT.md / AGENTS.md 读取与注入消息构造
+│   ├── call_log.py          # 工具调用 JSONL 日志（耗时 + 错误码）
 │   ├── sessions.py          # 会话事件日志：保存 / 列表 / 恢复
 │   ├── compact.py           # Token 估算 / 上下文归档 / 摘要提示词
 │   ├── skills.py            # Agent Skills 发现、元数据与按需加载
@@ -24,22 +34,23 @@ qAgent/
 │   │   └── client.py        # OpenAI 兼容客户端构造
 │   └── tools/
 │       ├── base.py          # Tool / ToolSpec / FunctionTool 契约
-│       ├── registry.py      # 注册、Schema 导出、参数校验与分发
-│       ├── common.py        # 路径、编码、文本读取、删除保护
+│       ├── registry.py      # 注册、Schema 导出、参数校验、分发与调用日志
+│       ├── common.py        # 路径边界、编码、文本读取、删除保护
 │       ├── clock.py         # getDate、isleapyear
 │       ├── filesystem.py    # 10 个本地文件操作工具
 │       ├── mcp_client.py    # MCP 客户端：连接、发现、路由与调用
 │       ├── search.py        # searchWeb：百度千帆联网搜索
-│       ├── skills.py        # loadSkill：按需加载 Skill 正文与附件
+│       ├── skills.py        # loadSkill / createSkill
 │       └── web.py           # fetchweb：网页正文抓取与 Markdown 转换
 └── tui/                     # Textual 前端（只依赖 core 的公开接口）
     ├── app.py               # 组合根：把核心事件映射为界面行为
     ├── bootstrap.py         # config.ini 缺失时生成 mock 模板
-    ├── screens.py           # 会话选择面板 / 配置引导对话框
+    ├── screens.py           # 会话选择面板（含 r 重新扫描）/ 配置引导对话框
     ├── styles.tcss
     ├── __main__.py
     └── widgets/
         ├── chat.py          # ChatView / MessageCard
+        ├── compact_panel.py # CompactPanel：压缩前后的双栏对照
         ├── header.py        # AppHeader：品牌、模型与实时状态
         ├── hints.py         # HintBar：常用快捷键
         ├── input.py         # ChatInput（斜杠补全键位）
@@ -108,10 +119,20 @@ qAgent 启动时会检查**当前工作目录**的 `config.ini`：
 
 所有可调参数均从 `config.ini`（含 `.env` 环境变量覆盖）读取，未配置时使用
 `core/config.py` 中的内置默认值。完整模板见 `config.ini.example`：
-LLM（api_key / base_url / model / timeout / context_window）、`[files]`
-max_text_bytes、`[compact]` threshold / summary_tokens、`[mcp]`
-request_timeout / connect_timeout、`[ui]` tool_result_max_chars、
-`[search]` baidu_api_key。
+
+| 配置节 | 键 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `[LLM]` | api_key / base_url / model / timeout / context_window | — | API Key、端点、模型、请求超时、上下文窗口 |
+| `[files]` | max_text_bytes | 2 MB | 单文件读写上限 |
+| `[files]` | confine_to_workspace | `true` | 文件工具路径边界（越界返回 `PATH_OUTSIDE_WORKSPACE`） |
+| `[agent]` | max_steps | 12 | 单轮最多工具往返次数 |
+| `[agent]` | turn_timeout | 600 秒 | 单轮总时限 |
+| `[agents]` | filename | `AGENT.md` | 项目规则文件名（可用 `QAGENT_AGENTS_FILE` 覆盖） |
+| `[log]` | enabled | `true` | 工具调用日志开关 |
+| `[compact]` | threshold / summary_tokens | 0.6 / 5000 | 压缩阈值与摘要长度 |
+| `[mcp]` | request_timeout / connect_timeout | 120 / 20 秒 | MCP 调用与连接超时 |
+| `[ui]` | tool_result_max_chars | 4000 | 界面展示的工具结果截断长度 |
+| `[search]` | baidu_api_key | 空 | 百度千帆联网搜索 Key |
 
 使用联网搜索工具 `searchWeb` 还需要百度千帆 API Key（`[search]` 的
 `baidu_api_key` 或 `.env` 中的 `BAIDU_SEARCH_API_KEY`）。未配置时程序
@@ -134,15 +155,15 @@ request_timeout / connect_timeout、`[ui]` tool_result_max_chars、
 | `/clear` | 放弃当前对话内容并开启新会话（不保存） |
 | `/compact [备注]` | 压缩上下文（原始对话先归档，再生成摘要替换） |
 | `/mcp` | 显示 MCP 服务器与可用工具 |
-| `/agents` | 查看 AGENTS.md 注入状态 |
+| `/agents` | 查看项目规则文件（AGENT.md / AGENTS.md）注入状态 |
 | `/context` | 查看上下文用量统计 |
 | `/quit`、`/exit` | 退出（自动保存脏会话） |
 
 快捷键：`Ctrl+Q` 退出（同样自动保存），`Ctrl+L` 清空对话。
 
-## AGENTS.md 支持（一次注入，全程复用）
+## 项目规则文件支持（AGENT.md / AGENTS.md，一次注入，全程复用）
 
-会话首次加载时，如果项目根目录存在 `AGENTS.md`，其内容会：
+会话首次加载时，如果工作目录存在项目规则文件，其内容会：
 
 1. 作为一条 `system` 消息追加到聊天历史的最前端（位于 Skills 系统提示词
    之后、第一条用户消息之前，最大化前缀缓存命中）；
@@ -152,7 +173,11 @@ request_timeout / connect_timeout、`[ui]` tool_result_max_chars、
 4. `/compact` 压缩与 `/resume` 恢复会话时，从事件日志中取回原始内容并
    重新注入，保证提示词前缀稳定。
 
-`/agents` 随时查看注入状态。
+文件名规则：默认 `AGENT.md`，`AGENTS.md` 与之互为等价名（配置其中一个时，
+找不到会回退到另一个）；自定义文件名通过 `[agents] filename` 或环境变量
+`QAGENT_AGENTS_FILE` 指定，此时只探测该文件（避免"配了自定义却悄悄读到
+AGENTS.md"）。文件超过 1 MB 时截断读取，缺失或不可读时静默跳过、不报错。
+本仓库自带一个示例：[`AGENT.md`](./AGENT.md)。`/agents` 随时查看注入状态。
 
 ## MCP 服务器与边栏
 
@@ -244,7 +269,7 @@ qAgent 能在有限上下文窗口内持续工作，全部由 `core` 实现，�
 
 ## 工具
 
-共 16 个：
+共 17 个（另有 MCP 服务器提供的工具动态并入）：
 
 - 时间与日期：`getDate`、`isleapyear`
 - 文件与目录：`get_cwd`、`list_directory`、`get_file_type`、`read_text_file`、
@@ -254,6 +279,47 @@ qAgent 能在有限上下文窗口内持续工作，全部由 `core` 实现，�
 - 联网搜索：`searchWeb`
 - 技能：`loadSkill`、`createSkill`
 - 上下文归档检索：`recallContext`
+
+### 工具执行护栏
+
+`ChatAgent.send()` 有两个独立保护，避免模型陷入工具死循环：
+
+| 护栏 | 配置 | 行为 |
+| --- | --- | --- |
+| 单轮步数上限 | `[agent] max_steps`（默认 12） | 超过即 `AgentError` 中止本轮，已执行的结果仍在历史里，下一轮可继续 |
+| 单轮总时限 | `[agent] turn_timeout`（默认 600 秒） | 超时中止本轮并提示调整配置 |
+
+### 路径边界
+
+`[files] confine_to_workspace = true`（默认）时，10 个文件工具的每个路径参数
+都会先做 `resolve()` 再判断是否落在工作目录内，越界返回
+`{"error": "...PATH_OUTSIDE_WORKSPACE..."}`，可执行文件内容不受影响；需要
+跨目录时显式改成 `false`。删除目录仍额外禁止磁盘根目录、用户主目录、当前
+工作目录及其父目录。
+
+### 工具调用日志
+
+每次工具调用往 `<工作目录>/.agents/logs/tool-calls.jsonl` 追加一行：
+
+```json
+{"ts": "2026-11-12T15:30:00", "event": "tool_call", "name": "read_text_file",
+ "ok": false, "code": "PATH_OUTSIDE_WORKSPACE", "dur_ms": 3, "args": ["path"]}
+```
+
+只记录**参数名**，不记录参数值（避免文件内容或密钥入库）；写日志失败只告警
+一次，绝不影响对话。`[log] enabled = false` 可整体关闭。
+
+## 自测
+
+```bash
+cd Agent/qAgent
+py -m unittest discover -s tests -t . -v
+```
+
+36 个用例全部不依赖网络与真实 API Key（Agent 主循环用假客户端驱动），覆盖：
+闰年规则边界、10 类文件语义与参数错误、路径边界（含相对路径逃逸）、技能
+创建与拒绝覆盖、会话保存/列表/恢复往返、规则文件命名与等价名回退、调用日志
+（含错误码与参数脱敏）、单轮步数上限真实中止循环。
 
 ## Agent Skills
 
@@ -314,9 +380,11 @@ createSkill(name="pdf-tools", skillContext="---\nname: pdf-tools\ndescription: �
 安全限制：
 
 - 相对路径基于当前工作目录解析，支持 `~`
+- `[files] confine_to_workspace = true`（默认）时，路径必须落在工作目录内，
+  越界返回 `PATH_OUTSIDE_WORKSPACE`；改成 `false` 才允许跨目录
 - 文本读取上限 2 MB，拒绝二进制文件
 - 删除目录时禁止磁盘根目录、用户主目录、当前工作目录及其父目录
-- 所有错误统一返回 JSON `{"error": ...}` 给模型
+- 所有错误统一返回 JSON `{"error": ..., "code": ...}` 给模型
 
 ## 新增前端（Web / Desktop）
 

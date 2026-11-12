@@ -1,9 +1,10 @@
 {
   "name": "anythingllm-webpage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "上传文档到 AnythingLLM 的单页工具（后端代理持有 API Key）",
+  "description": "上传文档到 AnythingLLM 并向量化的单页工具（后端代理持有 API Key）",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   }
 }

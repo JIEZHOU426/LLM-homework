@@ -2,83 +2,222 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>文档上传到 AnythingLLM</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>文档上传并向量化 · AnythingLLM</title>
   <style>
-    body { font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px; }
-    h1 { font-size: 20px; }
-    .field { margin-bottom: 16px; }
-    label { display: block; margin-bottom: 4px; font-weight: 600; }
-    input, select { width: 100%; padding: 8px; box-sizing: border-box; }
-    button { background: #2563eb; color: #fff; border: none; padding: 10px 24px; cursor: pointer; font-size: 14px; border-radius: 4px; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    #log { margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 4px; min-height: 100px; white-space: pre-wrap; font-size: 13px; }
+    :root { --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --ok:#059669; --warn:#b45309; --err:#b91c1c; --accent:#2563eb; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 32px auto; padding: 0 20px 60px; color: var(--fg); }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; }
+    input[type=file], select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; }
+    button { background: var(--accent); color: #fff; border: none; padding: 10px 20px; cursor: pointer; font-size: 14px; border-radius: 6px; }
+    button.secondary { background: #fff; color: var(--fg); border: 1px solid var(--line); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    ol.steps { list-style: none; padding: 0; margin: 0; }
+    ol.steps li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+    ol.steps li:last-child { border-bottom: none; }
+    .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; color: var(--muted); min-width: 52px; text-align: center; }
+    .badge.ok { background: #ecfdf5; color: var(--ok); }
+    .badge.run { background: #eff6ff; color: var(--accent); }
+    .badge.err { background: #fef2f2; color: var(--err); }
+    #detail { white-space: pre-wrap; font-size: 13px; color: var(--muted); margin-top: 8px; word-break: break-all; }
+    #output { margin-top: 16px; padding: 12px; background: #f9fafb; border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
   </style>
 </head>
 <body>
-  <h1>上传文档到 AnythingLLM</h1>
-  <div class="field">
-    <label>选择文件</label>
-    <input type="file" id="fileInput">
+  <h1>上传文档并向量化</h1>
+  <div class="sub">浏览器 → 本地代理（持有 API Key）→ AnythingLLM。上传只把文件放进实例，<strong>必须再向量化</strong>才能被问答检索到，本页面会自动执行这两步。</div>
+
+  <div class="card">
+    <div class="field">
+      <label for="fileInput">选择文件</label>
+      <input type="file" id="fileInput">
+    </div>
+    <div class="field">
+      <label for="workspaceSelect">目标工作区</label>
+      <div class="row">
+        <select id="workspaceSelect"><option value="">正在加载工作区…</option></select>
+        <button class="secondary" id="reloadBtn" type="button" style="flex:0 0 auto">刷新列表</button>
+      </div>
+    </div>
+    <button id="uploadBtn" type="button">上传并向量化</button>
   </div>
-  <div class="field">
-    <label>目标工作区</label>
-    <select id="workspaceSelect">
-      <option value="46decf1f-7fe5-4d03-9584-9d2b6f2743a0">我的工作区 (46decf1f...)</option>
-    </select>
+
+  <div class="card">
+    <ol class="steps">
+      <li><span>1. 上传文件到实例</span><span class="badge" id="step1">待开始</span></li>
+      <li><span>2. 提交向量化（进检索库）</span><span class="badge" id="step2">待开始</span></li>
+      <li><span>3. 结果确认</span><span class="badge" id="step3">待开始</span></li>
+    </ol>
+    <div id="detail">等待操作…</div>
+    <div id="output" hidden></div>
   </div>
-  <button id="uploadBtn" onclick="upload()">上传并嵌入</button>
-  <div id="log">等待操作...</div>
+
   <script>
-    const API_URL = '/api/upload';
-    const workspaceSelect = document.getElementById('workspaceSelect');
-    const log = document.getElementById('log');
+    const els = {
+      file: document.getElementById('fileInput'),
+      select: document.getElementById('workspaceSelect'),
+      uploadBtn: document.getElementById('uploadBtn'),
+      reloadBtn: document.getElementById('reloadBtn'),
+      detail: document.getElementById('detail'),
+      output: document.getElementById('output'),
+      step1: document.getElementById('step1'),
+      step2: document.getElementById('step2'),
+      step3: document.getElementById('step3'),
+    };
+    const STORAGE_KEY = 'anythingllm_workspace';
+
+    const ERROR_HINTS = {
+      BAD_WORKSPACE: '工作区标识不合法，请刷新列表后重新选择。',
+      NOTHING_TO_EMBED: '上传结果里没有可向量化的文档位置，检查文件格式是否受支持。',
+      UPLOAD_FAILED: '上传失败：确认 AnythingLLM 已启动、API Key 有权限。',
+      EMBED_FAILED: '向量化失败：可能是嵌入模型未配置，请在 AnythingLLM 里检查 Embedder 设置。',
+      WORKSPACES_FAILED: '工作区列表加载失败：确认 AnythingLLM 服务在运行。',
+      UPSTREAM_UNREACHABLE: '连不上 AnythingLLM，确认服务地址与端口。',
+    };
+
+    function setStep(el, text, kind) {
+      el.textContent = text;
+      el.className = 'badge' + (kind ? ' ' + kind : '');
+    }
+
+    function resetSteps() {
+      setStep(els.step1, '待开始', '');
+      setStep(els.step2, '待开始', '');
+      setStep(els.step3, '待开始', '');
+      els.output.hidden = true;
+      els.output.textContent = '';
+    }
+
+    function fail(stepEl, payload, status) {
+      setStep(stepEl, '失败', 'err');
+      const code = payload && payload.code;
+      const message = (payload && (payload.error || payload.message)) || `HTTP ${status}`;
+      els.detail.textContent = `${message}${ERROR_HINTS[code] ? '\n提示：' + ERROR_HINTS[code] : ''}`;
+      if (payload) {
+        els.output.hidden = false;
+        els.output.textContent = JSON.stringify(payload, null, 2);
+      }
+    }
+
+    // 用 DOM API 填充下拉框，绝不把工作区名字拼进 innerHTML
+    function fillWorkspaces(workspaces) {
+      els.select.replaceChildren();
+      if (!workspaces.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = '（没有可用工作区，请先在 AnythingLLM 里创建）';
+        els.select.append(option);
+        return;
+      }
+      for (const item of workspaces) {
+        const option = document.createElement('option');
+        option.value = item.slug || '';
+        option.textContent = `${item.name || '(未命名)'} · ${item.slug || ''}`;
+        els.select.append(option);
+      }
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && workspaces.some((w) => w.slug === saved)) els.select.value = saved;
+    }
 
     async function loadWorkspaces() {
+      els.select.replaceChildren();
+      const loading = document.createElement('option');
+      loading.value = '';
+      loading.textContent = '正在加载工作区…';
+      els.select.append(loading);
       try {
         const res = await fetch('/api/workspaces');
         const data = await res.json();
-        if (!res.ok || !Array.isArray(data.workspaces)) return;
-        workspaceSelect.innerHTML = data.workspaces
-          .map(w => `<option value="${w.slug}">${w.name} (${w.slug.slice(0, 8)}...)</option>`)
-          .join('');
-        const saved = localStorage.getItem('anythingllm_workspace');
-        if (saved && data.workspaces.some(w => w.slug === saved)) workspaceSelect.value = saved;
+        if (!res.ok) return fail(els.step1, data, res.status);
+        fillWorkspaces(Array.isArray(data.workspaces) ? data.workspaces : []);
+        els.detail.textContent = `已加载 ${els.select.options.length} 个工作区。选择文件后点击"上传并向量化"。`;
       } catch (e) {
-        log.textContent = `工作区列表加载失败，使用默认工作区: ${e.message}`;
+        els.detail.textContent = `工作区列表加载失败：${e.message}`;
       }
     }
 
-    async function upload() {
-      const file = document.getElementById('fileInput').files[0];
-      const workspace = workspaceSelect.value;
-      const btn = document.getElementById('uploadBtn');
+    async function uploadAndEmbed() {
+      const file = els.file.files[0];
+      const workspace = els.select.value;
+      if (!file) { els.detail.textContent = '请先选择文件。'; return; }
+      if (!workspace) { els.detail.textContent = '请先选择目标工作区。'; return; }
 
-      if (!file) { log.textContent = '请先选择文件'; return; }
-      if (!workspace) { log.textContent = '请先选择目标工作区'; return; }
+      resetSteps();
+      localStorage.setItem(STORAGE_KEY, workspace);
+      els.uploadBtn.disabled = true;
+      els.reloadBtn.disabled = true;
+      try {
+        await runFlow(file, workspace);
+      } finally {
+        els.uploadBtn.disabled = false;
+        els.reloadBtn.disabled = false;
+      }
+    }
 
-      localStorage.setItem('anythingllm_workspace', workspace);
-      btn.disabled = true;
-      log.textContent = `正在上传 "${file.name}" 到工作区 ${workspace}...`;
-
+    async function runFlow(file, workspace) {
+      // 第一步：上传
+      els.detail.textContent = `正在上传「${file.name}」…`;
+      setStep(els.step1, '进行中', 'run');
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('addToWorkspaces', workspace);
-
+      let upload;
       try {
-        const res = await fetch(API_URL, { method: 'POST', body: formData });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          log.textContent = `上传成功！\n\n${JSON.stringify(data, null, 2)}`;
-        } else {
-          log.textContent = `上传失败 (${res.status}):\n${JSON.stringify(data, null, 2)}`;
-        }
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        upload = await res.json();
+        if (!res.ok) return fail(els.step1, upload, res.status);
       } catch (e) {
-        log.textContent = `请求错误: ${e.message}`;
-      } finally {
-        btn.disabled = false;
+        setStep(els.step1, '失败', 'err');
+        els.detail.textContent = `上传请求出错：${e.message}`;
+        return;
       }
+      setStep(els.step1, '完成', 'ok');
+
+      const locations = Array.isArray(upload.locations) ? upload.locations : [];
+      if (!locations.length) {
+        setStep(els.step2, '跳过', 'err');
+        setStep(els.step3, '失败', 'err');
+        els.detail.textContent = '上传成功，但响应里没有文档位置，无法向量化。';
+        els.output.hidden = false;
+        els.output.textContent = JSON.stringify(upload, null, 2);
+        return;
+      }
+
+      // 第二步：向量化
+      setStep(els.step2, '进行中', 'run');
+      els.detail.textContent = `已上传 ${locations.length} 个文档，正在提交向量化（大文件可能要几十秒）…`;
+      let embed;
+      try {
+        const res = await fetch('/api/embed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: workspace, adds: locations }),
+        });
+        embed = await res.json();
+        if (!res.ok) return fail(els.step2, embed, res.status);
+      } catch (e) {
+        setStep(els.step2, '失败', 'err');
+        els.detail.textContent = `向量化请求出错：${e.message}`;
+        return;
+      }
+      setStep(els.step2, '完成', 'ok');
+
+      // 第三步：结果确认
+      setStep(els.step3, embed.embedded ? '已入库' : '待确认', embed.embedded ? 'ok' : 'run');
+      els.detail.textContent =
+        `完成：${locations.length} 个文档已提交到工作区 ${workspace}。` +
+        (embed.embedded ? '现在可以在 AnythingLLM 里问答或做向量检索了。' : '上游未确认向量化结果，请到 AnythingLLM 检查文档状态。');
+      els.output.hidden = false;
+      els.output.textContent = JSON.stringify({ upload, embed }, null, 2);
     }
 
+    els.uploadBtn.addEventListener('click', uploadAndEmbed);
+    els.reloadBtn.addEventListener('click', loadWorkspaces);
     loadWorkspaces();
   </script>
 </body>

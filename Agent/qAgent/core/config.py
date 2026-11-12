@@ -26,6 +26,9 @@ DEFAULT_REQUEST_TIMEOUT = 120.0
 DEFAULT_MCP_REQUEST_TIMEOUT = 120.0
 DEFAULT_MCP_CONNECT_TIMEOUT = 20.0
 DEFAULT_TOOL_RESULT_MAX_CHARS = 4000
+DEFAULT_MAX_STEPS = 12
+DEFAULT_TURN_TIMEOUT = 600.0
+DEFAULT_AGENTS_FILE = "AGENT.md"
 
 # 占位 Key（模板生成的 mock 信息），检测到时视为未配置
 _PLACEHOLDER_KEY_PREFIX = "sk-your"
@@ -52,6 +55,11 @@ class Settings:
     context_window: int = 0  # 0 = 未知，使用 DEFAULT_CONTEXT_WINDOW
     compact_threshold: float = DEFAULT_COMPACT_THRESHOLD
     compact_summary_tokens: int = DEFAULT_SUMMARY_TOKENS
+    max_steps: int = DEFAULT_MAX_STEPS
+    turn_timeout: float = DEFAULT_TURN_TIMEOUT
+    confine_paths: bool = True
+    agents_filename: str = DEFAULT_AGENTS_FILE
+    tool_log_enabled: bool = True
     project_root: Path = Path(".")
     workspace_root: Path = Path(".")
     config_files: tuple[Path, ...] = ()
@@ -158,6 +166,21 @@ class Settings:
         if compact_summary_tokens <= 0:
             compact_summary_tokens = DEFAULT_SUMMARY_TOKENS
 
+        max_steps = _read_int(parser, "agent", "max_steps", DEFAULT_MAX_STEPS)
+        if max_steps <= 0:
+            max_steps = DEFAULT_MAX_STEPS
+        turn_timeout = _read_float(
+            parser, "agent", "turn_timeout", DEFAULT_TURN_TIMEOUT
+        )
+        if turn_timeout <= 0:
+            turn_timeout = DEFAULT_TURN_TIMEOUT
+        confine_paths = _read_bool(parser, "files", "confine_to_workspace", True)
+        agents_filename = (
+            os.getenv("QAGENT_AGENTS_FILE")
+            or parser.get("agents", "filename", fallback=DEFAULT_AGENTS_FILE)
+        ).strip() or DEFAULT_AGENTS_FILE
+        tool_log_enabled = _read_bool(parser, "log", "enabled", True)
+
         return cls(
             api_key=api_key,
             configured=configured,
@@ -172,6 +195,11 @@ class Settings:
             compact_threshold=compact_threshold,
             compact_summary_tokens=compact_summary_tokens,
             context_window=context_window,
+            max_steps=max_steps,
+            turn_timeout=turn_timeout,
+            confine_paths=confine_paths,
+            agents_filename=agents_filename,
+            tool_log_enabled=tool_log_enabled,
             project_root=root,
             workspace_root=workspace_root,
             config_files=tuple(config_files),
@@ -198,5 +226,17 @@ def _read_float(
 ) -> float:
     try:
         return parser.getfloat(section, option, fallback=default)
+    except ValueError:
+        return default
+
+
+def _read_bool(
+    parser: configparser.ConfigParser,
+    section: str,
+    option: str,
+    default: bool,
+) -> bool:
+    try:
+        return parser.getboolean(section, option, fallback=default)
     except ValueError:
         return default

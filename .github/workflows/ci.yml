@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  qagent:
+    name: qAgent (unittest + compile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Agent/qAgent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: 语法检查
+        run: python -m compileall -q core tui main.py
+      - name: 单元测试
+        run: python -m unittest discover -s tests -t . -v
+
+  pet-hospital-mcp:
+    name: PetHospital MCP (unittest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: PetHospitalMCP/chongwu_mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "mcp>=2.0" httpx pydantic
+      - name: 单元测试（不需要后端）
+        run: python -m unittest discover -s tests -t . -v
+
+  anythingllm-mcp:
+    name: AnythingLLM MCP (unittest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AnythingLLMMCP/anything_mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "mcp>=2.0" httpx python-dotenv uvicorn
+      - name: 单元测试（不需要 AnythingLLM）
+        run: python -m unittest discover -s tests -t . -v
+
+  web-page:
+    name: Web page (node --test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AnythingLLMWebPage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: 单元 + 代理集成测试（监听 127.0.0.1 随机端口）
+        run: node --test
+        env:
+          ANYTHINGLLM_API_KEY: ci-placeholder
+          PYTHONIOENCODING: utf-8

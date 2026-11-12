@@ -1,3 +1,11 @@
+"""端到端冒烟脚本（**需要真实后端**，不属于单元测试）。
+
+以 stdio 拉起 ``python -m pet_hospital_mcp``，列出工具并真实调用，用来验证
+协议链路与后端联调。单元测试见 ``tests/test_tools.py``（不联网、不需要后端）。
+
+    python src/test_mcp_client.py      # 先启动宠物医院后端（默认 8080）
+"""
+
 import asyncio
 import sys
 from pathlib import Path
@@ -45,4 +53,5 @@ async def main():
             print("MCP is_error:", result.is_error)
 
 
-asyncio.run(main())
+if __name__ == "__main__":  # 避免被 unittest 等工具 import 时误执行
+    asyncio.run(main())
